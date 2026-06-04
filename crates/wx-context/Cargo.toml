@@ -11,7 +11,7 @@ wx-paths = { path = "../wx-paths" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 hex = "0.4"
-rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.40", features = ["bundled-sqlcipher"] }
 dashmap = "6"
 rayon = "1"
 rust-stemmers = "1"
@@ -19,8 +19,8 @@ rust-stemmers = "1"
 [dev-dependencies]
 tempfile = "3"
 filetime = "0.2"
-aes = "0.8"
-cbc = "0.1"
+aes = "0.9"
+cbc = "0.2"
 hmac = "0.12"
 sha2 = "0.10"
 pbkdf2 = { version = "0.12", features = ["hmac"] }

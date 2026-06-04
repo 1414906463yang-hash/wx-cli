@@ -247,7 +247,7 @@ mod tests {
     }
 
     fn build_first_page(enc_key: &[u8; 32], salt: &[u8; 16]) -> Vec<u8> {
-        use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
+        use aes::cipher::{block_padding::NoPadding, BlockModeEncrypt, KeyIvInit};
         use hmac::{Hmac, Mac};
         use sha2::Sha512;
 
@@ -259,7 +259,7 @@ mod tests {
         let mut ciphertext = plaintext;
         type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
         Aes256CbcEnc::new(enc_key.into(), (&iv).into())
-            .encrypt_padded_mut::<NoPadding>(&mut ciphertext, data_len)
+            .encrypt_padded::<NoPadding>(&mut ciphertext, data_len)
             .unwrap();
 
         let mut page = vec![0u8; params.page_size];

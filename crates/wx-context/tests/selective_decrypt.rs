@@ -8,7 +8,7 @@ fn build_encrypted_db(
     salt: &[u8; 16],
     params: &wx_decrypt::CryptoParams,
 ) {
-    use aes::cipher::{BlockEncryptMut, KeyIvInit};
+    use aes::cipher::{BlockModeEncrypt, KeyIvInit};
     use hmac::{Hmac, Mac};
     use sha2::Sha512;
 
@@ -22,7 +22,7 @@ fn build_encrypted_db(
     let mut ciphertext = plaintext;
     type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
     Aes256CbcEnc::new((&enc_key).into(), (&iv).into())
-        .encrypt_padded_mut::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
+        .encrypt_padded::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
         .unwrap();
 
     let mut page = Vec::with_capacity(params.page_size);

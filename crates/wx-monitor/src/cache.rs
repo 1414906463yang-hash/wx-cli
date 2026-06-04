@@ -275,7 +275,7 @@ mod tests {
 
     /// Build a minimal encrypted session.db that `decrypt_db` can process.
     fn build_encrypted_session_db(path: &Path, raw_key: &[u8; 32]) -> PathBuf {
-        use aes::cipher::{BlockEncryptMut, KeyIvInit};
+        use aes::cipher::{BlockModeEncrypt, KeyIvInit};
         use hmac::{Hmac, Mac};
         use sha2::Sha512;
 
@@ -317,7 +317,7 @@ mod tests {
         let mut ciphertext = plaintext.clone();
         let encryptor = Aes256CbcEnc::new((&enc_key).into(), (&iv).into());
         encryptor
-            .encrypt_padded_mut::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
+            .encrypt_padded::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
             .unwrap();
 
         // Assemble page: salt + ciphertext + IV + HMAC

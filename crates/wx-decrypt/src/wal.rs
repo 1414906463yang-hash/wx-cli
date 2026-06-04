@@ -380,7 +380,7 @@ mod tests {
         params: &CryptoParams,
         salt: Option<&[u8; 16]>,
     ) -> Vec<u8> {
-        use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
+        use aes::cipher::{block_padding::NoPadding, BlockModeEncrypt, KeyIvInit};
         use hmac::{Hmac, Mac};
         use sha2::Sha512;
 
@@ -397,7 +397,7 @@ mod tests {
 
         let mut ciphertext = plaintext.clone();
         Aes256CbcEnc::new(enc_key.into(), (&iv).into())
-            .encrypt_padded_mut::<NoPadding>(&mut ciphertext, data_len)
+            .encrypt_padded::<NoPadding>(&mut ciphertext, data_len)
             .expect("encryption should not fail");
 
         let mut page = vec![0u8; params.page_size];

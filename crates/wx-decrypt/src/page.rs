@@ -1,4 +1,4 @@
-use aes::cipher::{block_padding::NoPadding, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{block_padding::NoPadding, BlockModeDecrypt, KeyIvInit};
 use hmac::{Hmac, Mac};
 use sha2::Sha512;
 
@@ -45,8 +45,8 @@ pub fn decrypt_page(
     let encrypted = &page_buf[offset..params.page_size - params.reserve];
     let mut buf = encrypted.to_vec();
 
-    Aes256CbcDec::new(enc_key.into(), iv.into())
-        .decrypt_padded_mut::<NoPadding>(&mut buf)
+    Aes256CbcDec::new(enc_key.into(), iv.try_into().expect("IV length mismatch"))
+        .decrypt_padded::<NoPadding>(&mut buf)
         .map_err(|e| DecryptError::AesDecryptFailed {
             page_num,
             reason: e.to_string(),

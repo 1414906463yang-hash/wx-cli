@@ -15,7 +15,7 @@ fn make_xor_dat(key: u8) -> Vec<u8> {
 /// Header: 07 08 V1 08 07 (6B) + aes_size LE (4B) + xor_size LE (4B) + 0x01 (1B) = 15B
 /// Then AES-ECB encrypted payload with fixed key, then raw, then XOR tail.
 fn make_v1_dat() -> Vec<u8> {
-    use aes::cipher::{BlockEncrypt, KeyInit};
+    use aes::cipher::{BlockCipherEncrypt, KeyInit};
     use aes::Aes128;
 
     let key = b"cfcd208495d565ef"; // md5("0")[:16]
@@ -28,8 +28,8 @@ fn make_v1_dat() -> Vec<u8> {
     ];
     let mut block2 = [16u8; 16]; // full PKCS7 padding block
 
-    cipher.encrypt_block((&mut block1).into());
-    cipher.encrypt_block((&mut block2).into());
+    cipher.encrypt_block(aes::cipher::Array::from_mut_slice(&mut block1));
+    cipher.encrypt_block(aes::cipher::Array::from_mut_slice(&mut block2));
 
     let aes_size: u32 = 16; // original plaintext size
     let xor_size: u32 = 0;
@@ -46,7 +46,7 @@ fn make_v1_dat() -> Vec<u8> {
 
 /// Build a V2-encrypted `.dat` file with known AES key and XOR tail.
 fn make_v2_dat(aes_key: &[u8; 16], xor_key: u8) -> Vec<u8> {
-    use aes::cipher::{BlockEncrypt, KeyInit};
+    use aes::cipher::{BlockCipherEncrypt, KeyInit};
     use aes::Aes128;
 
     let cipher = Aes128::new(aes_key.into());
@@ -58,8 +58,8 @@ fn make_v2_dat(aes_key: &[u8; 16], xor_key: u8) -> Vec<u8> {
     ];
     let mut block2 = [16u8; 16]; // PKCS7 padding block
 
-    cipher.encrypt_block((&mut block1).into());
-    cipher.encrypt_block((&mut block2).into());
+    cipher.encrypt_block(aes::cipher::Array::from_mut_slice(&mut block1));
+    cipher.encrypt_block(aes::cipher::Array::from_mut_slice(&mut block2));
 
     let aes_size: u32 = 16;
     // Tail: 4 bytes XOR-encrypted

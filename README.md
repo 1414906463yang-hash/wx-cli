@@ -205,7 +205,7 @@ wx-cli/
 
 - 确认 WeChat 已弹出登录界面并完成登录
 - 增加超时：`--timeout 300`
-- 检查日志：`$TMPDIR/wx-cli/lldb/wechat_lldb_output.txt`
+- 检查日志：`$TMPDIR/wx-cli/lldb/wx_cli_lldb_output.txt`
 
 ### SIP / DevToolsSecurity 报错
 

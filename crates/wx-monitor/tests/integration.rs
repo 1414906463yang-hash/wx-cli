@@ -35,7 +35,7 @@ fn encrypt_page(
     page_num: u32,
     salt: &[u8; 16],
 ) -> Vec<u8> {
-    use aes::cipher::{BlockEncryptMut, KeyIvInit};
+    use aes::cipher::{BlockModeEncrypt, KeyIvInit};
     use hmac::{Hmac, Mac};
     use sha2::Sha512;
 
@@ -52,7 +52,7 @@ fn encrypt_page(
     let mut ciphertext = plaintext.to_vec();
     let encryptor = Aes256CbcEnc::new(enc_key.into(), (&iv).into());
     encryptor
-        .encrypt_padded_mut::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
+        .encrypt_padded::<aes::cipher::block_padding::NoPadding>(&mut ciphertext, data_size)
         .unwrap();
 
     // Assemble encrypted page

@@ -181,7 +181,7 @@ fn decrypt_v1_v2(
 
 /// AES-128-ECB decrypt with PKCS7 unpadding.
 fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8; 16]) -> Result<Vec<u8>, MediaError> {
-    use aes::cipher::{BlockDecrypt, KeyInit};
+    use aes::cipher::{BlockCipherDecrypt, KeyInit};
     use aes::Aes128;
 
     if ciphertext.is_empty() {
@@ -200,7 +200,7 @@ fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8; 16]) -> Result<Vec<u8>, MediaEr
     let mut decrypted = ciphertext.to_vec();
 
     for chunk in decrypted.chunks_exact_mut(16) {
-        cipher.decrypt_block(chunk.into());
+        cipher.decrypt_block(chunk.try_into().expect("chunk length mismatch"));
     }
 
     // PKCS7 unpadding
