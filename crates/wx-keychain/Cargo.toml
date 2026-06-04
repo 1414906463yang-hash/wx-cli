@@ -1,0 +1,28 @@
+[package]
+name = "wx-keychain"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wx-decrypt = { path = "../wx-decrypt" }
+wx-paths = { path = "../wx-paths" }
+tokio = { version = "1", features = ["process", "time", "io-util", "rt-multi-thread", "macros"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+hex = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2 = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+aes = "0.8"
+cbc = "0.1"
+hmac = "0.12"
+sha2 = "0.10"
+tempfile = "3"
