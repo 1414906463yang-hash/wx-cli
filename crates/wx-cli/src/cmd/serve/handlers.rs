@@ -8,20 +8,18 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 
 use crate::cmd::server::types::{RuntimeAccountState, ServerHealthPayload};
-use crate::output::JsonEnvelope;
+use crate::output::{JsonEnvelope, PagingMeta, StatsMeta};
 use crate::schema::{
     enrich_message, enrich_message_as_hit, enrich_native_fts_hit, enrich_session,
     project_message_items,
 };
-use crate::visibility_projection::{
-    project_contacts_envelope, project_sessions_envelope_enriched,
-};
+use crate::visibility_projection::{project_contacts_envelope, project_sessions_envelope_enriched};
 
 use super::error::ServeError;
 use super::event::SseEvent;
@@ -90,6 +88,68 @@ mod tests {
                 ("wxid".to_string(), Value::String("wxid_me".to_string())),
                 ("name".to_string(), Value::String("Me".to_string())),
             ]))
+        );
+    }
+
+    fn timeline_params(since: Option<i64>, until: Option<i64>) -> TimelineParams {
+        TimelineParams {
+            since,
+            until,
+            limit: 20,
+            offset: 0,
+            msg_type: None,
+            order: "asc".to_string(),
+            show_hidden: None,
+        }
+    }
+
+    #[test]
+    fn timeline_requires_a_bounded_time_range() {
+        assert!(timeline_bounds(&timeline_params(None, Some(20))).is_err());
+        assert!(timeline_bounds(&timeline_params(Some(10), None)).is_err());
+        assert!(timeline_bounds(&timeline_params(Some(20), Some(10))).is_err());
+        match timeline_bounds(&timeline_params(Some(10), Some(20))) {
+            Ok(bounds) => assert_eq!(bounds, (10, 20)),
+            Err(_) => panic!("valid timeline bounds should be accepted"),
+        }
+    }
+
+    fn timeline_message(create_time: i64) -> TimelineMessage {
+        TimelineMessage {
+            sort_seq: create_time,
+            server_id: create_time,
+            msg_type: 1,
+            sub_type: 0,
+            sender: "wxid_other".to_string(),
+            talker: "wxid_other".to_string(),
+            talker_display_name: "Other".to_string(),
+            create_time,
+            status: 0,
+            sender_display_name: "Other".to_string(),
+            direction: wx_context::Direction::detect("wxid_other", "wxid_me"),
+            snippet: create_time.to_string(),
+        }
+    }
+
+    #[test]
+    fn timeline_candidate_trimming_keeps_requested_edge() {
+        let source = [5, 1, 3, 2, 4]
+            .into_iter()
+            .map(timeline_message)
+            .collect::<Vec<_>>();
+
+        let mut asc = source.clone();
+        trim_timeline_candidates(&mut asc, wx_db::SortOrder::Asc, 2, false);
+        assert_eq!(
+            asc.iter().map(|item| item.create_time).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+
+        let mut desc = source;
+        trim_timeline_candidates(&mut desc, wx_db::SortOrder::Desc, 2, false);
+        assert_eq!(
+            desc.iter().map(|item| item.create_time).collect::<Vec<_>>(),
+            vec![5, 4]
         );
     }
 }
@@ -221,8 +281,7 @@ pub async fn handler_contacts(
             .query_contacts(&query)
             .map_err(|e| ServeError::Db(e.to_string()))?;
 
-        let envelope =
-            JsonEnvelope::from_query_result(result, wx_db::MAX_QUERY_LIMIT, 0, |c| c);
+        let envelope = JsonEnvelope::from_query_result(result, wx_db::MAX_QUERY_LIMIT, 0, |c| c);
         Ok::<_, ServeError>(project_contacts_envelope(
             envelope.items,
             &visibility,
@@ -379,9 +438,7 @@ pub async fn handler_messages(
         // When limit pushdown was used (non-anchor), total_rows only reflects the
         // scanned window. Use a lightweight COUNT(*) query for accurate DB-level total.
         if !has_anchor {
-            let mt_filter = msg_type
-                .as_ref()
-                .and_then(|s| wx_db::parse_msg_type(s));
+            let mt_filter = msg_type.as_ref().and_then(|s| wx_db::parse_msg_type(s));
             let db_total = guard.count_messages(
                 &talker,
                 since.unwrap_or(0),
@@ -398,6 +455,219 @@ pub async fn handler_messages(
         envelope.items = projected;
 
         Ok::<_, ServeError>(envelope)
+    })
+    .await
+    .map_err(|e| ServeError::Internal(e.to_string()))??;
+
+    Ok(Json(result))
+}
+
+// ---------------------------------------------------------------------------
+// Timeline — messages across every conversation in one bounded query
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct TimelineParams {
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(rename = "type")]
+    pub msg_type: Option<String>,
+    #[serde(default = "default_order")]
+    pub order: String,
+    pub show_hidden: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TimelineMessage {
+    pub sort_seq: i64,
+    pub server_id: i64,
+    pub msg_type: u32,
+    pub sub_type: u32,
+    pub sender: String,
+    pub talker: String,
+    pub talker_display_name: String,
+    pub create_time: i64,
+    pub status: i32,
+    pub sender_display_name: String,
+    pub direction: wx_context::Direction,
+    pub snippet: String,
+}
+
+impl TimelineMessage {
+    fn from_enriched(message: crate::schema::EnrichedMessage, talker_display_name: String) -> Self {
+        let crate::schema::EnrichedMessage {
+            message,
+            sender_display_name,
+            direction,
+            snippet,
+        } = message;
+        Self {
+            sort_seq: message.sort_seq,
+            server_id: message.server_id,
+            msg_type: message.msg_type,
+            sub_type: message.sub_type,
+            sender: message.sender,
+            talker: message.talker,
+            talker_display_name,
+            create_time: message.create_time,
+            status: message.status,
+            sender_display_name,
+            direction,
+            snippet,
+        }
+    }
+}
+
+fn sort_timeline_messages(messages: &mut [TimelineMessage], order: wx_db::SortOrder) {
+    match order {
+        wx_db::SortOrder::Asc => {
+            messages.sort_unstable_by_key(|item| (item.create_time, item.sort_seq, item.server_id))
+        }
+        wx_db::SortOrder::Desc => messages.sort_unstable_by(|a, b| {
+            (b.create_time, b.sort_seq, b.server_id).cmp(&(a.create_time, a.sort_seq, a.server_id))
+        }),
+    }
+}
+
+fn trim_timeline_candidates(
+    messages: &mut Vec<TimelineMessage>,
+    order: wx_db::SortOrder,
+    keep_limit: usize,
+    force: bool,
+) {
+    if force || messages.len() > keep_limit.saturating_mul(2) {
+        sort_timeline_messages(messages, order);
+        messages.truncate(keep_limit);
+    }
+}
+
+fn timeline_bounds(params: &TimelineParams) -> Result<(i64, i64), ServeError> {
+    let since = params
+        .since
+        .ok_or_else(|| ServeError::InvalidParam("missing required parameter: since".into()))?;
+    let until = params
+        .until
+        .ok_or_else(|| ServeError::InvalidParam("missing required parameter: until".into()))?;
+    if since > until {
+        return Err(ServeError::InvalidParam(
+            "since must be less than or equal to until".into(),
+        ));
+    }
+    Ok((since, until))
+}
+
+/// Read a time-bounded timeline across all conversations in one server request.
+///
+/// This is intentionally implemented inside the warm server process. Agent memory jobs and
+/// archive tools no longer need to launch one CLI process and make one HTTP round-trip for every
+/// active conversation.
+pub async fn handler_timeline(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<TimelineParams>,
+) -> Result<impl IntoResponse, ServeError> {
+    let (since, until) = timeline_bounds(&params)?;
+    let db = Arc::clone(&state.db);
+    let resolver = Arc::clone(&state.resolver);
+    let visibility = Arc::clone(&state.visibility);
+    let self_wxid = state.self_wxid.clone();
+    let limit = wx_db::effective_limit(params.limit);
+    let offset = params.offset;
+    let keep_limit = offset.saturating_add(limit);
+    let order = parse_order(&params.order);
+    let msg_type = params.msg_type.as_deref().and_then(wx_db::parse_msg_type);
+    let show_hidden = matches!(params.show_hidden.as_deref(), Some("1") | Some("true"));
+
+    let result = tokio::task::spawn_blocking(move || {
+        let guard = db.lock().map_err(|e| ServeError::Internal(e.to_string()))?;
+        let sessions = guard
+            .query_sessions(
+                &wx_db::SessionQuery::new()
+                    .limit(wx_db::MAX_QUERY_LIMIT)
+                    .offset(0),
+            )
+            .map_err(|e| ServeError::Db(e.to_string()))?;
+
+        let mut messages = Vec::new();
+        let mut total = 0usize;
+        let mut scanned = 0usize;
+        let mut skipped = sessions.stats.skipped;
+        let mut shard_warnings = Vec::new();
+
+        for session in sessions.items {
+            let talker = session.username;
+            if !show_hidden && visibility.is_hidden_talker(&talker) {
+                continue;
+            }
+
+            let talker_display_name = resolver.display_with_id(&talker);
+            let mut talker_offset = 0usize;
+
+            loop {
+                let mut query = wx_db::MessageQuery::for_talker(&talker)
+                    .since(since)
+                    .until(until)
+                    .limit(wx_db::MAX_QUERY_LIMIT)
+                    .offset(talker_offset)
+                    .order(order);
+                if let Some(mt) = msg_type {
+                    query = query.msg_type(mt);
+                }
+
+                let page = guard
+                    .query_messages(&query)
+                    .map_err(|e| ServeError::Db(e.to_string()))?;
+                let returned = page.items.len();
+                scanned = scanned.saturating_add(page.stats.total_rows);
+                skipped = skipped.saturating_add(page.stats.skipped);
+                shard_warnings.extend(page.shard_warnings);
+
+                let enriched = page
+                    .items
+                    .into_iter()
+                    .map(|message| enrich_message(message, &self_wxid, &resolver))
+                    .collect();
+                let projected = project_message_items(enriched, &talker, &visibility, show_hidden);
+                total = total.saturating_add(projected.len());
+                messages.extend(projected.into_iter().map(|message| {
+                    TimelineMessage::from_enriched(message, talker_display_name.clone())
+                }));
+
+                // Retain only the global candidates needed for this page. The common first-page
+                // path now stays close to 2×limit instead of holding the entire history in memory.
+                trim_timeline_candidates(&mut messages, order, keep_limit, false);
+
+                if returned < wx_db::MAX_QUERY_LIMIT {
+                    break;
+                }
+                talker_offset = talker_offset.saturating_add(returned);
+            }
+        }
+
+        trim_timeline_candidates(&mut messages, order, keep_limit, true);
+        let start = offset.min(total);
+        let items: Vec<_> = messages.into_iter().skip(start).take(limit).collect();
+        let returned = items.len();
+
+        Ok::<_, ServeError>(JsonEnvelope {
+            items,
+            paging: PagingMeta {
+                limit,
+                offset,
+                returned,
+                has_more: start + returned < total,
+                total,
+            },
+            stats: StatsMeta {
+                scanned,
+                skipped,
+                elapsed_ms: None,
+                shard_warnings,
+            },
+        })
     })
     .await
     .map_err(|e| ServeError::Internal(e.to_string()))??;
@@ -447,7 +717,9 @@ pub async fn handler_search(
                 .map_err(|e: std::sync::PoisonError<_>| ServeError::Internal(e.to_string()))?;
             // Lazy-init name2id cache with proper error propagation.
             let name2id = {
-                let mut cache_guard = state_arc.name2id_cache.lock()
+                let mut cache_guard = state_arc
+                    .name2id_cache
+                    .lock()
                     .map_err(|e: std::sync::PoisonError<_>| ServeError::Internal(e.to_string()))?;
                 match cache_guard.as_ref() {
                     Some(map) => map.clone(),
@@ -524,9 +796,7 @@ pub async fn handler_search(
             let first_attempt = guard
                 .pool()
                 .and_then(|pool| pool.fts_conn())
-                .map(|fts_conn| {
-                    wx_db::native_fts::search_message_fts(fts_conn, &q, limit, offset)
-                });
+                .map(|fts_conn| wx_db::native_fts::search_message_fts(fts_conn, &q, limit, offset));
 
             match first_attempt {
                 Some(Ok(r)) => Some(r),
@@ -539,8 +809,8 @@ pub async fn handler_search(
                             guard
                                 .pool()
                                 .and_then(|pool| pool.fts_conn())
-                                .and_then(
-                                    |fts_conn| match wx_db::native_fts::search_message_fts(
+                                .and_then(|fts_conn| {
+                                    match wx_db::native_fts::search_message_fts(
                                         fts_conn, &q, limit, offset,
                                     ) {
                                         Ok(r) => Some(r),
@@ -551,8 +821,8 @@ pub async fn handler_search(
                                             );
                                             None
                                         }
-                                    },
-                                )
+                                    }
+                                })
                         }
                         Err(reopen_err) => {
                             eprintln!(

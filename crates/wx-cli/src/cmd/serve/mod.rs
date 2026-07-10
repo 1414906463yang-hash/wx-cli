@@ -313,6 +313,7 @@ pub async fn cmd_serve(
     eprintln!("    GET /api/v1/sessions");
     eprintln!("    GET /api/v1/contacts");
     eprintln!("    GET /api/v1/messages?contact=<name_or_wxid>");
+    eprintln!("    GET /api/v1/timeline?since=<unix>&until=<unix>");
     eprintln!("    GET /api/v1/media?server_id=<id>&talker=<wxid>[&format=ogg|mp3]");
     eprintln!("    GET /api/v1/search?q=<keyword>");
     eprintln!("  Auth: {auth_status}");

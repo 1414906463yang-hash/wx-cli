@@ -258,6 +258,7 @@ wx-cli server status / stop / restart                      # 管理服务
 | `GET /api/v1/sessions` | 会话列表 | `limit`, `offset`, `order`, `show_hidden` |
 | `GET /api/v1/contacts` | 联系人列表 | `limit`, `offset`, `search`, `show_hidden` |
 | `GET /api/v1/messages` | 消息查询 | `contact`（必填）, `limit`, `offset`, `since`, `until`, `type`, `order`, `around_sort_seq`, `around_server_id`, `after_sort_seq`, `context`, `show_hidden` |
+| `GET /api/v1/timeline` | 跨全部会话按时间批量读取消息 | `since`（必填）, `until`（必填）, `limit`, `offset`, `type`, `order`, `show_hidden` |
 | `GET /api/v1/media` | 媒体内容直出 | `server_id`（必填）, `talker`（必填）, `format=ogg\|mp3`（仅语音） |
 | `GET /api/v1/search` | 全文搜索 | `q`（必填）, `limit`, `offset` |
 | `GET /api/v1/events` | SSE 事件流 | 无 |
@@ -313,6 +314,7 @@ wx-cli sessions                         # 4. 重试查询
 |------|-------------|
 | sessions | `username`, `display_name`, `summary`, `sort_timestamp`, `direction?` |
 | query | `sort_seq`, `server_id`, `msg_type`, `sender`, `content`, `direction` |
+| timeline API | `sort_seq`, `server_id`, `msg_type`, `sender`, `talker`, `talker_display_name`, `create_time`, `direction`, `snippet`；统一按时间跨会话排序 |
 | contacts | `user_name`, `alias`, `remark`, `nick_name`, `phone`, `labels` |
 | search | `server_id`, `talker`, `sender`, `snippet`, `hit_type` |
 
