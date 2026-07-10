@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2026-07-10
+
+### Features
+
+- **Agent-ready WeChat data layer** — Ship an Agent Skill for Claude Code, Codex, Cursor, and other compatible agents to query and subscribe to local WeChat data
+- **Cross-conversation timeline** — Add `GET /api/v1/timeline` for time-bounded message reads across all conversations in one request, with pagination, ordering, message-type filters, and privacy filtering
+- **Compact timeline output** — Return the conversation identity, sender, direction, timestamp, type, and snippet needed by memory, archive, and reporting agents without duplicating raw message payloads
+
+### Performance
+
+- **Reuse SQLCipher derived keys** — Cache per-database derived keys and reuse them across open, count, refresh, and reopen paths instead of repeating the 256k-round KDF
+- **Bound timeline memory** — Keep only the candidates required for the requested page rather than retaining the complete cross-conversation history during sorting
+- **Faster long-running server queries** — Reuse warm database connections for batch timeline reads, avoiding one CLI process and HTTP round trip per conversation
+
+### Documentation and maintenance
+
+- Rewrite the README around user-facing capabilities: local database access, real-time subscriptions, Agent integration, automation, memory, CRM, and workflow use cases
+- Document Release installation and the bundled Agent Skill
+- Update project dependencies and GitHub Actions
+- Restore clean `cargo fmt --check`, `cargo clippy -- -D warnings`, and full-workspace test baselines
+
 ## [0.7.2] - 2026-04-06
 
 ### Features
